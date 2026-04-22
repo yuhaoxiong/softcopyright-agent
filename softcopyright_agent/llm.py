@@ -136,6 +136,45 @@ class OpenAICompatibleClient:
                     time.sleep(2 ** attempt)
         raise LLMError(f"LLM 请求重试 {self.settings.max_retries} 次后仍失败: {last_error}")
 
+    def generate_stream(self, *, system: str, user: str, temperature: float = 0.3):
+        """Yield text chunks from a streaming Chat Completions response.
+
+        Provides real-time token delivery for UI display. The caller
+        iterates over this generator to receive incremental content.
+        """
+        payload = {
+            "model": self.settings.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": temperature,
+            "stream": True,
+        }
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {
+            "Authorization": f"Bearer {self.settings.api_key}",
+            "Content-Type": "application/json",
+        }
+        request = urllib.request.Request(self.endpoint, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=self.settings.timeout_seconds) as response:
+                for raw_line in response:
+                    decoded = raw_line.decode("utf-8").strip()
+                    if not decoded or not decoded.startswith("data: "):
+                        continue
+                    if decoded == "data: [DONE]":
+                        break
+                    try:
+                        chunk = json.loads(decoded[6:])
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        if content := delta.get("content", ""):
+                            yield content
+                    except (json.JSONDecodeError, IndexError, KeyError):
+                        continue
+        except (urllib.error.URLError, OSError) as exc:
+            raise LLMError(f"LLM 流式请求失败: {exc}") from exc
+
 
 class FallbackLLMClient:
     """Non-network fallback used for tests and offline demos."""

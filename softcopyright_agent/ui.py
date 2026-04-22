@@ -13,6 +13,7 @@ import json
 import time
 
 from softcopyright_agent.agent import SoftCopyrightAgent, GenerationCheckpointError
+from softcopyright_agent.llm import LLMSettings, create_llm_client
 from softcopyright_agent.models import RunConfig, AnalysisResult, Outline
 
 
@@ -88,6 +89,40 @@ def zip_directory(root: Path) -> bytes:
     return buffer.getvalue()
 
 
+def _get_llm_client(config: RunConfig):
+    """Build an LLM client from RunConfig (unified factory)."""
+    return create_llm_client(
+        LLMSettings.from_env(
+            config.llm_provider,
+            api_key=config.llm_api_key,
+            model=config.llm_model,
+            base_url=config.llm_base_url,
+        ),
+        required=config.llm_required,
+    )
+
+
+def _render_summary(result_data: dict) -> None:
+    """Render quality metrics and metadata summary."""
+    import streamlit as st
+
+    st.subheader("生成摘要")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("说明书字数", result_data.get("document_words", 0))
+    col2.metric("源代码行数", result_data.get("source_lines", 0))
+    col3.metric("生成模式", result_data.get("generation_mode", "unknown"))
+
+    qm = result_data.get("quality_metrics")
+    if qm:
+        col4.metric("质量评估得分", f"{qm.get('total_score', 0)} / 100")
+        st.caption(f"评估详情：{qm.get('assessment_detail', '无')}")
+    else:
+        col4.metric("质量评估得分", "未评估")
+
+    with st.expander("运行元数据"):
+        st.json(result_data)
+
+
 def run_app() -> None:
     import streamlit as st
 
@@ -156,7 +191,7 @@ def run_app() -> None:
             llm_required = st.checkbox("必须使用大模型，失败不回退", value=False)
             aigc_rounds = st.number_input("AIGC 降重轮次", min_value=1, max_value=5, value=1, step=1)
             write_review = st.checkbox("生成审查草稿", value=True)
-            theme = st.selectbox("输出主题模板", ["standard", "game", "algorithm", "frontend_only"], index=0)
+            theme = st.selectbox("输出主题模板", ["standard", "game", "algorithm", "frontend_only", "iot"], index=0)
 
         # Build config
         from softcopyright_agent.models import RunConfig
@@ -206,16 +241,7 @@ def run_app() -> None:
                 progress_bar.progress(min(1.0, max(0.0, pct)))
                 progress_text.text(f"【{phase}】 {detail}")
 
-            from softcopyright_agent.llm import LLMSettings, create_llm_client
-            llm_client = create_llm_client(
-                LLMSettings.from_env(
-                    config.llm_provider,
-                    api_key=config.llm_api_key,
-                    model=config.llm_model,
-                    base_url=config.llm_base_url,
-                ),
-                required=config.llm_required,
-            )
+            llm_client = _get_llm_client(config)
             mode = llm_client.provider_name if llm_client else "fallback"
 
             try:
@@ -255,10 +281,7 @@ def run_app() -> None:
                 
             if st.button("✅ 阶段二审查通过，放行全卷打字机", type="primary", use_container_width=True):
                 try:
-                    new_analysis = AnalysisResult(**json.loads(edited_analysis_str))
-                    from softcopyright_agent.models import ModuleSpec
-                    new_analysis.core_modules = [ModuleSpec.from_dict(m) for m in new_analysis.core_modules]
-                    from softcopyright_agent.models import Outline
+                    new_analysis = AnalysisResult.from_dict(json.loads(edited_analysis_str))
                     new_outline = Outline.from_dict(json.loads(edited_outline_str))
                     
                     st.session_state.tmp_analysis = new_analysis
@@ -283,16 +306,7 @@ def run_app() -> None:
                     progress_bar.progress(min(1.0, max(0.0, pct)))
                     progress_text.text(f"【{phase}】 {detail}")
 
-                from softcopyright_agent.llm import LLMSettings, create_llm_client
-                llm_client = create_llm_client(
-                    LLMSettings.from_env(
-                        config.llm_provider,
-                        api_key=config.llm_api_key,
-                        model=config.llm_model,
-                        base_url=config.llm_base_url,
-                    ),
-                    required=config.llm_required,
-                )
+                llm_client = _get_llm_client(config)
 
                 try:
                     agent = SoftCopyrightAgent()
@@ -412,15 +426,7 @@ def _render_visual_review(result_data: dict, config: RunConfig) -> None:
             with col2:
                 if st.button("🔄 使用 AI 重写此章节", key=f"review_regen_{ch_id}", type="secondary"):
                     with st.spinner("AI 正在重写该章节全文..."):
-                        llm_client = create_llm_client(
-                            LLMSettings.from_env(
-                                config.llm_provider,
-                                api_key=config.llm_api_key,
-                                model=config.llm_model,
-                                base_url=config.llm_base_url,
-                            ),
-                            required=config.llm_required,
-                        )
+                        llm_client = _get_llm_client(config)
                         agent = SoftCopyrightAgent()
                         try:
                             analysis = AnalysisResult.from_dict(result_data["analysis"])
@@ -468,23 +474,6 @@ def _render_visual_review(result_data: dict, config: RunConfig) -> None:
             st.session_state.last_result = new_run_result.to_dict()
             st.success("重打包完成！已覆盖输出件。")
             st.rerun()
-    import streamlit as st
-
-    st.subheader("生成摘要")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("说明书字数", result_data.get("document_words", 0))
-    col2.metric("源代码行数", result_data.get("source_lines", 0))
-    col3.metric("生成模式", result_data.get("generation_mode", "unknown"))
-    
-    qm = result_data.get("quality_metrics")
-    if qm:
-        col4.metric("质量评估得分", f"{qm.get('total_score', 0)} / 100")
-        st.caption(f"评估详情：{qm.get('assessment_detail', '无')}")
-    else:
-        col4.metric("质量评估得分", "未评估")
-
-    with st.expander("运行元数据"):
-        st.json(result_data)
 
 
 def _render_file_browser(root: Path, *, title: str, editable: bool) -> None:

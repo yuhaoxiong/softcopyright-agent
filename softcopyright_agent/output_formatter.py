@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from .doc_writer import DocumentWriter
@@ -64,6 +65,7 @@ class OutputFormatter:
             target_doc_words=target_doc_words,
             source_lines=source_lines,
             target_code_lines=target_code_lines,
+            document_chapters=document_chapters,
         )
 
         report_path = output_dir / f"{safe_title}_生成报告.md"
@@ -175,6 +177,7 @@ class OutputFormatter:
         target_doc_words: int,
         source_lines: int,
         target_code_lines: int,
+        document_chapters: dict[str, str],
     ) -> QualityMetrics:
         # Word count (20)
         actual_words = word_counts.get("total", 0)
@@ -191,19 +194,33 @@ class OutputFormatter:
         total_modules = max(len(analysis.core_modules), 1)
         module_score = int(15 * (covered_modules / total_modules))
 
-        # Placeholder checks for other metrics (based on word distribution or raw heuristics)
         # Doc Completeness (15)
         completeness_ratio = min(1.0, sum(1 for c in analysis.core_modules if word_counts.get(c.slug, 0) > 0) / total_modules + 0.5)
         doc_completeness_score = int(15 * completeness_ratio)
-        
-        # API Coverage (10)
-        api_coverage_score = 10 if any("api" in p.lower() or "controller" in p.lower() for p in paths) else 5
 
-        # Security Coverage (10)
-        security_coverage_score = 8  # Static logic for now
-        
-        # Content Uniqueness (10)
-        content_uniqueness_score = 9 
+        # API Coverage (10)
+        code_paths = [f.path.lower() for f in code_files]
+        api_coverage_score = 10 if any("api" in p or "controller" in p for p in code_paths) else 5
+
+        # Security Coverage (10) — 文档安全关键词动态扫描
+        doc_text = " ".join(document_chapters.values())
+        security_keywords = ["认证", "授权", "加密", "权限", "安全", "审计", "日志", "防护", "鉴权", "令牌", "密钥"]
+        found_security = sum(1 for kw in security_keywords if kw in doc_text)
+        security_coverage_score = min(10, int(10 * min(1.0, found_security / 5)))
+
+        # Content Uniqueness (10) — 章节间相似度分析
+        chapter_texts = list(document_chapters.values())
+        avg_similarity = 0.0
+        if len(chapter_texts) >= 2:
+            comparisons = 0
+            for i in range(len(chapter_texts)):
+                for j in range(i + 1, len(chapter_texts)):
+                    si = chapter_texts[i][:600]
+                    sj = chapter_texts[j][:600]
+                    avg_similarity += SequenceMatcher(None, si, sj).ratio()
+                    comparisons += 1
+            avg_similarity /= max(comparisons, 1)
+        content_uniqueness_score = max(3, int(10 * (1.0 - avg_similarity))) if len(chapter_texts) >= 2 else 8
 
         total = word_score + line_score + module_score + doc_completeness_score + api_coverage_score + security_coverage_score + content_uniqueness_score
         detail = []
@@ -213,7 +230,11 @@ class OutputFormatter:
             detail.append(f"代码量不足 (差{max(0, target_code_lines - source_lines)}行)")
         if module_score < 15:
             detail.append(f"有{total_modules - covered_modules}个模块未在代码结构中体现")
-            
+        if security_coverage_score < 8:
+            detail.append(f"安全设计描述不足 (覆盖{found_security}/5项关键词)")
+        if content_uniqueness_score < 7:
+            detail.append(f"章节间文本相似度偏高 ({avg_similarity:.0%})")
+
         return QualityMetrics(
             word_count_score=word_score,
             line_count_score=line_score,

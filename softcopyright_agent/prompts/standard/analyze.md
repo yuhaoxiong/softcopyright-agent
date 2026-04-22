@@ -14,22 +14,22 @@
 {{
   "keywords": ["从标题中提取的技术关键词，3-6个"],
   "tech_stack": {{
-    "frontend": "前端框架，如 Vue.js + Element Plus",
-    "backend": "后端框架，如 Python + Flask",
-    "database": "数据库，如 MySQL + Redis",
-    "ai_framework": "AI框架（如涉及），如 PyTorch + Transformers，不涉及则填 无",
-    "deployment": "部署方案，如 Docker + Nginx"
+    "frontend": "前端框架（含版本号），如 Vue 3.4 + Element Plus 2.7；若为纯后端/嵌入式则填 无",
+    "backend": "后端框架（含版本号），如 Python 3.11 + Flask 3.0；若为纯前端则填 无",
+    "database": "数据库（含版本号），如 MySQL 8.0 + Redis 7.2",
+    "ai_framework": "AI/算法框架（如涉及），如 PyTorch 2.1 + Transformers 4.36，不涉及则填 无",
+    "deployment": "部署方案，如 Docker 24.0 + Nginx 1.25 + Gunicorn"
   }},
-  "business_domain": "业务领域，一句话描述，如 智能客服/知识问答",
-  "architecture_style": "架构风格，如 分层架构 + REST API + 模块化服务",
-  "deployment_profile": "部署概况，一句话描述",
+  "business_domain": "业务领域一句话描述，如 废旧纺织品智能识别与自动分拣",
+  "architecture_style": "架构风格，如 感知-推理-决策-执行 四层工业架构",
+  "deployment_profile": "部署环境概况，如 工控机+PLC控制柜+HMI触控屏 工业现场部署",
   "core_modules": [
     {{
-      "name": "模块中文名称，如 用户管理模块",
-      "slug": "模块英文标识，如 module_01_user，格式为 module_序号_英文缩写",
-      "responsibilities": ["职责1", "职责2", "职责3"],
-      "entities": ["实体1", "实体2", "实体3"],
-      "interfaces": ["create_module_01_user", "update_module_01_user", "query_module_01_user"]
+      "name": "模块中文名称（8字以内），如 高光谱采集模块",
+      "slug": "module_序号(两位)_英文缩写，如 module_01_spectral",
+      "responsibilities": ["职责1（动词+宾语格式）", "职责2", "职责3", "职责4"],
+      "entities": ["核心数据实体1", "核心数据实体2", "核心数据实体3"],
+      "interfaces": ["模块对外接口函数名1", "接口函数名2", "接口函数名3"]
     }}
   ]
 }}
@@ -45,10 +45,11 @@
 
 ## 规则
 
-1. 基于上述“输入参数向导参考”进行针对性架构延展。如果偏好为“默认”，则由大模型依据标题自行推断最合适的技术栈。
-2. `tech_stack` 字段必须包含用户指定的偏好元素。
-3. 如果 `has_mobile` 为 True，`core_modules` 必须加入移动应用相关的端侧模块。
-4. 如果 `has_algo` 为 True，必须规划硬核算法相关模块。
-5. `core_modules` 必须包含 5-8 个模块。每个模块的 `slug` 格式为 `module_序号(两位)_英文缩写`。
-6. 技术选型和架构绝不可臆测，必须与生成的模块设计完美对齐。
-7. 只输出严谨的 JSON，绝对不要掺杂任何 Markdown 代码块外的文字解释！
+1. 基于上述"输入参数向导参考"进行针对性架构延展。偏好为"默认"时，依据标题推断最合适的技术栈。
+2. `tech_stack` 各字段必须携带**具体版本号**（如 Python 3.11、MySQL 8.0），不得模糊写"Python"。
+3. 如果 `has_mobile` 为 True，`core_modules` 必须加入移动端相关模块。
+4. 如果 `has_algo` 为 True，必须规划包含模型训练/推理的硬核算法模块。
+5. `core_modules` 必须包含 5-8 个模块。每模块 `responsibilities` 不少于 4 项，`entities` 不少于 3 项。
+6. 推断时必须考虑标题暗示的**行业场景**（如工业检测→PLC通信协议、医疗→HL7/DICOM接口、教育→课程/考试实体），确保模块规划反映行业纵深而非通用模板。
+7. 技术选型和架构绝不可臆测，必须与生成的模块设计完美对齐。
+8. 只输出严谨的 JSON，绝对不要掺杂任何 Markdown 代码块外的文字解释！

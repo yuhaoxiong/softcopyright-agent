@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable
 from .llm import LLMClient, extract_json_object
 from .models import AnalysisResult, GeneratedFile, Outline, ModuleSpec
@@ -56,9 +56,8 @@ class CodeGenerator:
         per_module_target = max(120, target_lines // max(1, len(analysis.core_modules)))
         document_context = "\n\n".join(document_chapters.values())[:12000]
         total_modules = len(analysis.core_modules)
-        for i, module in enumerate(analysis.core_modules):
-            if progress_callback:
-                progress_callback("源代码生成", 0.8 + 0.15 * (i / max(total_modules, 1)), f"生成模块代码：{module.name} ({i+1}/{total_modules})")
+
+        def _gen_one_module(module):
             prompt = prompt_engine.render(
                 "generate_code.md",
                 analysis=json.dumps(analysis.to_dict(), ensure_ascii=False, indent=2),
@@ -72,7 +71,25 @@ class CodeGenerator:
                 user=prompt,
                 temperature=0.25,
             )
-            files.extend(self._parse_generated_files(response))
+            return module.name, self._parse_generated_files(response)
+
+        with ThreadPoolExecutor(max_workers=min(4, total_modules)) as executor:
+            futures = {
+                executor.submit(_gen_one_module, module): module
+                for module in analysis.core_modules
+            }
+            completed = 0
+            for future in as_completed(futures):
+                completed += 1
+                module_name, module_files = future.result()
+                files.extend(module_files)
+                if progress_callback:
+                    progress_callback(
+                        "源代码生成",
+                        0.8 + 0.15 * (completed / max(total_modules, 1)),
+                        f"完成模块代码：{module_name} ({completed}/{total_modules})",
+                    )
+
         return self._deduplicate_files(files)
 
     def _fallback_generate(self, analysis: AnalysisResult, outline: Outline, target_lines: int = 3000, progress_callback: Callable[[str, float, str], None] | None = None) -> list[GeneratedFile]:
