@@ -1,0 +1,9 @@
+{
+  "root": ["app.py", "README.md"],
+  "config": ["settings.py", "database.py"],
+  "models": ["base.py", "{module_slug}.py"],
+  "services": ["{module_slug}_service.py"],
+  "api": ["{module_slug}_api.py"],
+  "utils": ["auth.py", "logger.py", "validators.py"],
+  "tests": ["test_generated_contract.py"]
+}
