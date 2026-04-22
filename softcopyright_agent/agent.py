@@ -38,6 +38,53 @@ class SoftCopyrightAgent:
         self.prompt_engine = PromptEngine()
         self.quality_checker = ChapterQualityChecker()
 
+    def run_react(
+        self,
+        title: str,
+        config: RunConfig | None = None,
+        llm_client: LLMClient | None = None,
+        progress_callback: Callable[[str, float, str], None] | None = None,
+    ) -> RunResult:
+        """Run the full pipeline using the ReAct orchestrator.
+
+        Instead of the fixed six-phase pipeline, the LLM autonomously
+        decides which tools to call and in what order, enabling dynamic
+        planning, quality-driven retries, and error recovery.
+
+        Requires a working LLM client — no fallback mode is available.
+        """
+        from .orchestrator import ReActOrchestrator
+
+        if llm_client is None:
+            llm_client = create_llm_client(
+                LLMSettings.from_env(
+                    provider=config.llm_provider if config else "auto",
+                    api_key=config.llm_api_key if config else None,
+                    model=config.llm_model if config else None,
+                    base_url=config.llm_base_url if config else None,
+                )
+            )
+        if llm_client is None:
+            raise ValueError("Agent 模式需要 LLM 连接。请配置 API Key 和模型。")
+
+        config = config or RunConfig()
+        self.prompt_engine.theme = config.theme
+
+        orchestrator = ReActOrchestrator(
+            llm_client,
+            analyzer=self.analyzer,
+            outline_generator=self.outline_generator,
+            doc_writer=self.doc_writer,
+            quality_checker=self.quality_checker,
+            aigc_reducer=self.aigc_reducer,
+            code_generator=self.code_generator,
+            output_formatter=self.output_formatter,
+            prompt_engine=self.prompt_engine,
+            config=config,
+            progress_callback=progress_callback,
+        )
+        return orchestrator.run(title)
+
     def run(
         self, 
         title: str, 

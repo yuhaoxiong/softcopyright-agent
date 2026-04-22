@@ -192,6 +192,15 @@ def run_app() -> None:
             aigc_rounds = st.number_input("AIGC 降重轮次", min_value=1, max_value=5, value=1, step=1)
             write_review = st.checkbox("生成审查草稿", value=True)
             theme = st.selectbox("输出主题模板", ["standard", "game", "algorithm", "frontend_only", "iot"], index=0)
+            st.divider()
+            st.subheader("执行模式")
+            agent_mode = st.radio(
+                "编排模式",
+                ["pipeline", "agent"],
+                captions=["固定流水线（规划→审查→生成）", "🤖 Agent 模式（LLM 自主决策）"],
+                index=0,
+                horizontal=True,
+            )
 
         # Build config
         from softcopyright_agent.models import RunConfig
@@ -218,15 +227,56 @@ def run_app() -> None:
 
         st.divider()
         if st.session_state.agent_state == "IDLE" or st.session_state.agent_state == "DONE":
-            start_phase1_btn = st.button("🚀 启动第一阶段：规划与立项分析", type="primary", use_container_width=True)
+            if agent_mode == "agent":
+                start_phase1_btn = False
+                start_react_btn = st.button("🤖 Agent 一键生成（全自主）", type="primary", use_container_width=True)
+            else:
+                start_react_btn = False
+                start_phase1_btn = st.button("🚀 启动第一阶段：规划与立项分析", type="primary", use_container_width=True)
         else:
             start_phase1_btn = False
+            start_react_btn = False
             if st.session_state.agent_state == "OUTLINE_REVIEW":
                 st.info("架构已产出：请前往【2. 规划审查】标签卡检查。")
             if st.button("取消会话并复位系统", key="reset_bt1"):
                 st.session_state.agent_state = "IDLE"
                 st.rerun()
 
+    # ── Agent 模式一键运行 ──
+    if start_react_btn:
+        if not title.strip():
+            st.error("请输入软著标题。")
+            return
+        st.session_state.tmp_config = config
+        import time
+        started = time.time()
+        with st.status("🤖 Agent 自主执行中...", expanded=True) as status:
+            progress_bar = st.progress(0.0)
+            progress_text = st.empty()
+            def _on_react_progress(phase: str, pct: float, detail: str) -> None:
+                progress_bar.progress(min(1.0, max(0.0, pct)))
+                progress_text.text(f"【{phase}】 {detail}")
+            llm_client = _get_llm_client(config)
+            try:
+                agent = SoftCopyrightAgent()
+                result = agent.run_react(
+                    title, config, llm_client,
+                    progress_callback=_on_react_progress,
+                )
+            except Exception as exc:
+                status.update(label="Agent 执行失败", state="error")
+                st.exception(exc)
+                return
+            progress_bar.progress(1.0)
+            progress_text.text("Agent 全流程完成！")
+            status.update(label=f"Agent 完成，用时 {time.time() - started:.1f}s", state="complete")
+        st.session_state.last_result = result.to_dict()
+        st.session_state.last_output_dir = config.output_dir
+        st.session_state.last_review_dir = config.review_dir
+        st.session_state.agent_state = "DONE"
+        st.rerun()
+
+    # ── Pipeline 模式阶段一 ──
     if start_phase1_btn:
         if not title.strip():
             st.error("请输入软著标题。")
