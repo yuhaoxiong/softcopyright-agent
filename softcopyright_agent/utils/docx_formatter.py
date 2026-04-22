@@ -373,3 +373,112 @@ def _set_run_font(run) -> None:
     run.font.size = _FONT_SIZE_BODY
     run.font.name = _FONT_BODY_EN
     run.element.rPr.rFonts.set(qn("w:eastAsia"), _FONT_BODY)
+
+
+# ── 源代码 DOCX ──────────────────────────────────────────────────
+
+_FONT_CODE = "Consolas"
+_FONT_SIZE_CODE = Pt(9)          # 五号
+_FONT_SIZE_CODE_PATH = Pt(10.5)  # 小五号加粗
+
+
+def write_code_docx(
+    path: Path,
+    title: str,
+    code_files: list,
+    *,
+    lines_per_page: int = 50,
+) -> None:
+    """Write all source code files into a single DOCX for copyright submission.
+
+    Each file gets:
+    - A Heading 2 with the file path
+    - Line-numbered code content in monospace font
+    - A page break between files
+
+    Args:
+        path: Output .docx path.
+        title: Document title (used for cover page and header).
+        code_files: List of GeneratedFile (with .path and .content attrs).
+        lines_per_page: Approximate lines per page (for header info).
+    """
+    doc = Document()
+
+    _setup_default_font(doc)
+    _setup_page(doc)
+    _add_code_cover_page(doc, title, len(code_files))
+    _add_header_footer(doc, f"{title} 源代码")
+
+    for file_idx, gen_file in enumerate(code_files):
+        if file_idx > 0:
+            doc.add_page_break()
+
+        # 文件路径标题
+        h = doc.add_heading(gen_file.path, level=2)
+        for run in h.runs:
+            run.font.name = _FONT_CODE
+            run.font.size = _FONT_SIZE_CODE_PATH
+            run.element.rPr.rFonts.set(qn("w:eastAsia"), _FONT_HEADING)
+
+        # 代码内容（带行号）
+        code_lines = gen_file.content.rstrip("\n").split("\n")
+        line_num_width = len(str(len(code_lines)))
+
+        for line_num, code_line in enumerate(code_lines, 1):
+            p = doc.add_paragraph()
+            p.paragraph_format.space_before = Pt(0)
+            p.paragraph_format.space_after = Pt(0)
+            p.paragraph_format.line_spacing = 1.15
+
+            # 行号
+            run_num = p.add_run(f"{line_num:>{line_num_width}}  ")
+            run_num.font.name = _FONT_CODE
+            run_num.font.size = _FONT_SIZE_CODE
+            run_num.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
+
+            # 代码
+            run_code = p.add_run(code_line)
+            run_code.font.name = _FONT_CODE
+            run_code.font.size = _FONT_SIZE_CODE
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(path))
+
+
+def _add_code_cover_page(doc: Document, title: str, file_count: int) -> None:
+    """Add a cover page for the source code document."""
+    for _ in range(6):
+        doc.add_paragraph("")
+
+    p_title = doc.add_paragraph()
+    p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p_title.add_run(title)
+    run.font.size = _FONT_SIZE_COVER_TITLE
+    run.font.bold = True
+    run.font.name = _FONT_BODY_EN
+    run.element.rPr.rFonts.set(qn("w:eastAsia"), _FONT_HEADING)
+
+    p_sub = doc.add_paragraph()
+    p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p_sub.add_run("源代码清单")
+    run.font.size = Pt(18)
+    run.font.name = _FONT_BODY_EN
+    run.element.rPr.rFonts.set(qn("w:eastAsia"), _FONT_HEADING)
+
+    doc.add_paragraph("")
+
+    info_lines = [
+        f"版本号：V1.0",
+        f"编制日期：{date.today().strftime('%Y年%m月%d日')}",
+        f"源文件数：{file_count}",
+    ]
+    for line in info_lines:
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(line)
+        run.font.size = Pt(14)
+        run.font.name = _FONT_BODY_EN
+        run.element.rPr.rFonts.set(qn("w:eastAsia"), _FONT_BODY)
+
+    doc.add_page_break()
+

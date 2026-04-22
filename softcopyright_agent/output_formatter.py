@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .doc_writer import DocumentWriter
 from .models import AnalysisResult, GeneratedFile, Outline, QualityMetrics
-from .utils.docx_formatter import write_docx
+from .utils.docx_formatter import write_code_docx, write_docx
 from .utils.file_utils import ensure_dir, safe_child_path, safe_filename
 from .utils.line_counter import count_text_lines
 from .utils.word_counter import count_words, summarize_word_counts
@@ -54,6 +54,10 @@ class OutputFormatter:
             target = safe_child_path(source_dir, generated.path)
             ensure_dir(target.parent)
             target.write_text(generated.content, encoding="utf-8")
+
+        code_docx_path = output_dir / f"{safe_title}_源代码.docx"
+        if create_docx and code_files:
+            write_code_docx(code_docx_path, title, code_files)
 
         word_counts = summarize_word_counts(document_chapters)
         source_lines = sum(count_text_lines(file.content) for file in code_files)
@@ -109,6 +113,8 @@ class OutputFormatter:
         }
         if create_docx:
             result["docx"] = docx_path
+            if code_files:
+                result["code_docx"] = code_docx_path
         return result
 
     def _report(
