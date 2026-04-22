@@ -53,6 +53,7 @@ class DocumentWriter:
         llm_client: LLMClient | None = None,
         prompt_engine: PromptEngine | None = None,
         progress_callback: Callable[[str, float, str], None] | None = None,
+        quality_feedback: str | None = None,
     ) -> str:
         if llm_client is not None and outline is not None:
             prompt_engine = prompt_engine or PromptEngine()
@@ -65,6 +66,11 @@ class DocumentWriter:
                 outline=json.dumps(outline.to_dict(), ensure_ascii=False, indent=2),
                 previous_chapters_summary=previous_summary,
             )
+            if quality_feedback:
+                prompt += (
+                    "\n\n## 上一次生成的质量审查反馈（你必须逐条修正以下问题）\n\n"
+                    + quality_feedback
+                )
             return llm_client.generate(
                 system="你是资深软件架构师，专门编写可读性强、细节充分的软件著作权设计说明书。",
                 user=prompt,

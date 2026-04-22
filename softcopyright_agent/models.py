@@ -143,6 +143,8 @@ class RunConfig:
     interactive_review: bool = False
     review_dir: Path | None = None
     theme: str = "standard"
+    chapter_quality_threshold: int = 70
+    max_chapter_retries: int = 2
 
 
 @dataclass(slots=True)

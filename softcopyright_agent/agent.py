@@ -15,6 +15,7 @@ from .outline_generator import OutlineGenerator
 from .output_formatter import OutputFormatter
 from .prompt_engine import PromptEngine
 from .review import ReviewManager
+from .tools.quality_tool import ChapterQualityChecker
 
 
 class GenerationCheckpointError(Exception):
@@ -35,6 +36,7 @@ class SoftCopyrightAgent:
         self.aigc_reducer = AIGCReducer()
         self.output_formatter = OutputFormatter()
         self.prompt_engine = PromptEngine()
+        self.quality_checker = ChapterQualityChecker()
 
     def run(
         self, 
@@ -138,13 +140,13 @@ class SoftCopyrightAgent:
         output_dir = Path(config.output_dir)
         state = resume_state or {}
 
-        # Phase 3: 说明书编写
+        # Phase 3: 说明书编写（带质量自检闭环）
         if "document" not in state:
             if progress_callback:
                 progress_callback("说明书编写", 0.4, "正在编写各个章节内容...")
             try:
-                document = self.doc_writer.write(
-                    analysis, outline, llm_client=llm_client, prompt_engine=self.prompt_engine, progress_callback=progress_callback
+                document = self._write_chapters_with_quality_check(
+                    analysis, outline, llm_client, config, progress_callback
                 )
             except Exception as exc:
                 if not isinstance(exc, LLMError) or config.llm_required:
@@ -313,6 +315,75 @@ class SoftCopyrightAgent:
             generation_mode=generation_mode,
             quality_metrics=formatted["quality_metrics"],
         )
+
+    def _write_chapters_with_quality_check(
+        self,
+        analysis: AnalysisResult,
+        outline: Outline,
+        llm_client: LLMClient | None,
+        config: RunConfig,
+        progress_callback: Callable[[str, float, str], None] | None = None,
+    ) -> dict[str, str]:
+        """Write chapters with quality self-check and retry loop.
+
+        After each chapter is generated, the quality checker evaluates it.
+        If the score falls below ``config.chapter_quality_threshold`` and
+        retries remain, the checker's observation is injected as feedback
+        into the next attempt, giving the LLM specific instructions on
+        what to fix.
+        """
+        chapters: dict[str, str] = {}
+        previous_summary = ""
+        total = len(outline.chapters)
+
+        for i, chapter in enumerate(outline.chapters):
+            quality_feedback: str | None = None
+
+            for attempt in range(config.max_chapter_retries + 1):
+                if progress_callback:
+                    retry_hint = f" (重试 {attempt}/{config.max_chapter_retries})" if attempt > 0 else ""
+                    progress_callback(
+                        "说明书编写",
+                        0.4 + 0.2 * (i / max(total, 1)),
+                        f"正在编写：{chapter.title} ({i + 1}/{total}){retry_hint}",
+                    )
+
+                content = self.doc_writer.write_chapter(
+                    chapter,
+                    analysis,
+                    previous_summary,
+                    outline=outline,
+                    llm_client=llm_client,
+                    prompt_engine=self.prompt_engine,
+                    quality_feedback=quality_feedback,
+                )
+
+                # Self-check: only when LLM is active and retries remain
+                if llm_client is not None and attempt < config.max_chapter_retries:
+                    check = self.quality_checker.check(chapter.id, content, chapter)
+                    if check.data["score"] >= config.chapter_quality_threshold:
+                        if attempt > 0 and progress_callback:
+                            progress_callback(
+                                "说明书编写",
+                                0.4 + 0.2 * (i / max(total, 1)),
+                                f"{chapter.title} 质量自检通过 ({check.data['score']}分)",
+                            )
+                        break
+                    # Below threshold: inject feedback for next attempt
+                    quality_feedback = check.observation
+                    if progress_callback:
+                        progress_callback(
+                            "说明书编写",
+                            0.4 + 0.2 * (i / max(total, 1)),
+                            f"{chapter.title} 质量不达标({check.data['score']}分)，准备重写...",
+                        )
+                else:
+                    break
+
+            chapters[chapter.id] = content
+            previous_summary = (previous_summary + "\n" + self.doc_writer._summarize(content))[-1200:]
+
+        return chapters
 
     def _confirm_outline(self, outline) -> None:
         print("即将生成以下目录：")
