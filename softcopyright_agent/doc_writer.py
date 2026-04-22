@@ -98,9 +98,19 @@ class DocumentWriter:
         return "\n".join(lines).strip() + "\n"
 
     def compose_markdown(self, title: str, chapters: dict[str, str]) -> str:
+        def _sort_key(k: str) -> tuple[int, float, str]:
+            # 附录永远放最后
+            is_appendix = 1 if "appendix" in k.lower() or "附录" in k else 0
+            # 提取章节号 (例如 chapter_1 -> 1)
+            import re
+            m = re.search(r'\d+', k)
+            num = float(m.group()) if m else 999.0
+            return (is_appendix, num, k)
+            
         body = [f"# {title} 设计说明书", ""]
-        body.extend(chapters[key] for key in sorted(chapters))
+        body.extend(chapters[key] for key in sorted(chapters.keys(), key=_sort_key))
         return "\n".join(body)
+
 
     def _section_paragraph(self, section: str, analysis: AnalysisResult, previous_summary: str, section_budget: int) -> str:
         modules = "、".join(module.name for module in analysis.core_modules)
